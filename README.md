@@ -10,7 +10,7 @@ Code that targets `io_uring` on Linux is notoriously difficult to test:
 - Miri cannot execute syscalls, so any `io_uring` code is invisible to it
 - Pointer-heavy SQE/CQE buffers are a common source of UB that goes undetected
 
-miring replaces the kernel with a cooperative userspace emulator. The SQ/CQ ring protocol, buffer registration, and completion semantics are all faithfully reproduced using heap allocations and atomics — giving Miri full visibility into every pointer dereference your `io_uring` code makes.
+miring replaces the kernel with a cooperative userspace emulator. The SQ/CQ ring protocol and completion semantics are faithfully reproduced using heap allocations and atomics — giving Miri full visibility into every pointer dereference your `io_uring` code makes.
 
 ## Quick start
 
@@ -36,8 +36,8 @@ Your code uses `io_uring::opcode`, `io_uring::types`, etc. as normal. Under Miri
 | Feature | Status |
 |---------|--------|
 | SQ/CQ ring protocol (push, submit, complete, overflow) | Emulated |
-| 75 opcode builders (full io-uring 0.7.11 parity) | Emulated |
-| 63 dispatch handlers that touch user memory | Emulated |
+| Opcode builders (full io-uring 0.7.11 parity) | Emulated |
+| Dispatch handlers that touch user memory | Emulated |
 | Linked operations (`IO_LINK`, `IO_HARDLINK`) | Emulated |
 | `SKIP_SUCCESS` (CQE suppression) | Emulated |
 | Buffer selection (`IOSQE_BUFFER_SELECT` + CQE flags) | Emulated |
@@ -51,9 +51,9 @@ The emulator does not perform real I/O. Instead, each dispatch handler walks the
 
 ## Opcode coverage
 
-All 75 builder structs from `io-uring` 0.7.11 are implemented:
+All builder structs from `io-uring` 0.7.11 are implemented:
 
-`Nop`, `Read`, `Write`, `Readv`, `Writev`, `ReadFixed`, `WriteFixed`, `Fsync`, `PollAdd`, `PollRemove`, `SyncFileRange`, `SendMsg`, `RecvMsg`, `Timeout`, `TimeoutRemove`, `TimeoutUpdate`, `Accept`, `AcceptMulti`, `AsyncCancel`, `AsyncCancel2`, `LinkTimeout`, `Connect`, `Fallocate`, `OpenAt`, `OpenAt2`, `Close`, `Statx`, `FilesUpdate`, `ProvideBuffers`, `RemoveBuffers`, `Send`, `Recv`, `RecvMulti`, `RecvBundle`, `RecvMultiBundle`, `RecvMsgMulti`, `SendZc`, `SendMsgZc`, `SendBundle`, `RecvZc`, `Splice`, `Tee`, `Shutdown`, `RenameAt`, `UnlinkAt`, `MkDirAt`, `SymlinkAt`, `LinkAt`, `MsgRing`, `MsgRingSendFd`, `Socket`, `Bind`, `Listen`, `Ftruncate`, `Fadvise`, `Madvise`, `EpollCtl`, `EpollWait`, `Read`(`Multi`), `GetXattr`, `SetXattr`, `FGetXattr`, `FSetXattr`, `UringCmd16`, `UringCmd80`, `SetSockOpt`, `FutexWait`, `FutexWake`, `FutexWaitV`, `WaitId`, `FixedFdInstall`, `ReadvFixed`, `WritevFixed`, `Pipe`
+`Nop`, `Read`, `Write`, `Readv`, `Writev`, `ReadFixed`, `WriteFixed`, `Fsync`, `PollAdd`, `PollRemove`, `SyncFileRange`, `SendMsg`, `RecvMsg`, `Timeout`, `TimeoutRemove`, `TimeoutUpdate`, `Accept`, `AcceptMulti`, `AsyncCancel`, `AsyncCancel2`, `LinkTimeout`, `Connect`, `Fallocate`, `OpenAt`, `OpenAt2`, `Close`, `Statx`, `FilesUpdate`, `ProvideBuffers`, `RemoveBuffers`, `Send`, `Recv`, `RecvMulti`, `RecvBundle`, `RecvMultiBundle`, `RecvMsgMulti`, `SendZc`, `SendMsgZc`, `SendBundle`, `RecvZc`, `Splice`, `Tee`, `Shutdown`, `RenameAt`, `UnlinkAt`, `MkDirAt`, `SymlinkAt`, `LinkAt`, `MsgRing`, `MsgRingSendFd`, `Socket`, `Bind`, `Listen`, `Ftruncate`, `Fadvise`, `Madvise`, `EpollCtl`, `EpollWait`, `ReadMulti`, `GetXattr`, `SetXattr`, `FGetXattr`, `FSetXattr`, `UringCmd16`, `UringCmd80`, `SetSockOpt`, `FutexWait`, `FutexWake`, `FutexWaitV`, `WaitId`, `FixedFdInstall`, `ReadvFixed`, `WritevFixed`, `Pipe`
 
 ## Loom support
 
@@ -66,14 +66,14 @@ RUSTFLAGS='--cfg loom' cargo test --release --lib loom_
 ## Testing
 
 ```sh
-cargo test                    # 94 tests, all pass
-cargo +nightly miri test      # same 94 tests under Miri
+cargo test
+cargo +nightly miri test
 ```
 
 ## Limitations
 
-- **No real I/O.** Dispatch handlers validate buffer pointers and simulate results (e.g. `Read` fills the buffer with `0xAA`, `OpenAt` returns fd 42). They do not interact with the filesystem, network, or any kernel subsystem.
-- **Single-threaded dispatch.** Completions are produced by a background thread that joins on the next `submit()` call — this is sufficient for Miri and Loom but does not model kernel-level concurrency.
+- **No real I/O.** Dispatch handlers validate buffer pointers and simulate results (e.g. `Read` fills the buffer with `0`, `OpenAt` returns fd 42). They do not interact with the filesystem, network, or any kernel subsystem.
+- **Deferred dispatch.** Completions are produced by background dispatch threads that join on completion reaping — this is sufficient for Miri and Loom but does not model kernel-level concurrency.
 - **No `io_uring_register` file/buffer tables.** `register_buffers`, `register_files`, etc. are accepted but don't change dispatch behavior.
 - **Setup flags are no-ops.** `setup_sqpoll`, `setup_iopoll`, `setup_coop_taskrun`, etc. are accepted by the builder for API compatibility but have no effect on emulation.
 
